@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+.vscode/
+build/*/warn-*.txt
+build/*/xref-*.html

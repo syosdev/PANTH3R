@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Panther Sprite Editor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0d0d; font-family: 'Consolas', monospace; color: #e0e0e0; padding: 16px; }
+  h2 { color: #c0392b; font-size: 16px; margin-bottom: 12px; letter-spacing: 2px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; }
+
+  .canvas-wrap { position: relative; }
+  canvas#drawCanvas { border: 1px solid #2a1518; cursor: crosshair; display: block; background: #111; }
+  .canvas-label { position: absolute; top: 6px; left: 8px; color: #444; font-size: 11px; pointer-events: none; }
+
+  .toolbar { display: flex; gap: 4px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+  .toolbar label { color: #555; font-size: 11px; }
+  .sep { width: 1px; height: 20px; background: #2a1518; margin: 0 4px; }
+
+  button { background: #1a1012; color: #c0392b; border: 1px solid #2a1518; padding: 5px 12px; font-family: inherit; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+  button:hover { background: #2a1518; border-color: #c0392b; }
+  button.active { background: #c0392b; color: #0d0d0d; border-color: #c0392b; }
+  button.danger { color: #ff4444; }
+  button.small { padding: 3px 8px; font-size: 10px; }
+
+  .panel { width: 310px; flex-shrink: 0; }
+  .panel h3 { color: #c0392b; font-size: 11px; margin: 12px 0 6px 0; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Frame strip */
+  .frame-strip { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; align-items: flex-start; }
+  .frame-thumb { border: 1px solid #2a1518; background: #111; cursor: pointer; text-align: center; transition: all 0.15s; flex-shrink: 0; }
+  .frame-thumb:hover { border-color: #666; }
+  .frame-thumb.active { border-color: #c0392b; }
+  .frame-thumb canvas { display: block; margin: 0 auto; }
+  .frame-thumb .flabel { color: #555; font-size: 9px; padding: 2px; }
+  .frame-thumb.active .flabel { color: #c0392b; }
+  .frame-add { border: 1px dashed #2a1518; background: transparent; color: #444; width: 52px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: all 0.15s; }
+  .frame-add:hover { border-color: #c0392b; color: #c0392b; }
+
+  .ghost-toggle { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .ghost-toggle input { accent-color: #c0392b; }
+
+  /* Animation preview */
+  .anim-preview { border: 1px solid #2a1518; background: #111; text-align: center; }
+  .anim-preview canvas { display: block; margin: 0 auto; }
+
+  .stroke-list { max-height: 120px; overflow-y: auto; background: #0a0a0a; border: 1px solid #2a1518; padding: 2px; }
+  .stroke-list::-webkit-scrollbar { width: 4px; }
+  .stroke-list::-webkit-scrollbar-thumb { background: #2a1518; }
+  .stroke-item { font-size: 10px; color: #555; padding: 3px 6px; display: flex; justify-content: space-between; }
+  .stroke-item .del { color: #444; cursor: pointer; }
+  .stroke-item .del:hover { color: #ff4444; }
+
+  textarea { width: 100%; height: 100px; background: #0a0a0a; color: #c0392b; border: 1px solid #2a1518; font-family: inherit; font-size: 10px; padding: 6px; resize: vertical; }
+  textarea:focus { outline: none; border-color: #c0392b; }
+</style>
+</head>
+<body>
+  <h2>PANTH3RZ — Sprite Editor</h2>
+
+  <div class="toolbar">
+    <label>Tool:</label>
+    <button id="btnStroke" class="active" onclick="setTool('stroke')" title="Freehand (S)">Line</button>
+    <button id="btnStraight" onclick="setTool('straight')" title="Straight line (L)">Straight</button>
+    <button id="btnDot" onclick="setTool('dot')" title="Dots (D)">Dot</button>
+    <button id="btnEraser" onclick="setTool('eraser')" title="Eraser (E)">Eraser</button>
+    <div class="sep"></div>
+    <label>Size:</label>
+    <input type="range" id="brushSize" min="1" max="6" value="2" style="width:50px" oninput="document.getElementById('sizeLabel').textContent=this.value">
+    <span id="sizeLabel" style="color:#555;font-size:10px;width:12px">2</span>
+    <div class="sep"></div>
+    <button onclick="undoStroke()" title="Ctrl+Z">Undo</button>
+    <button onclick="redoStroke()" title="Ctrl+Y">Redo</button>
+    <div class="sep"></div>
+    <button onclick="copyFrame()" title="Duplicate current frame">Copy Frame</button>
+    <button onclick="clearFrame()" class="danger">Clear</button>
+    <div class="sep"></div>
+    <label><input type="checkbox" id="snapGrid" style="accent-color:#c0392b"> Snap</label>
+  </div>
+
+  <div class="row">
+    <div class="canvas-wrap">
+      <div class="canvas-label" id="canvasLabel">Frame 1</div>
+      <canvas id="drawCanvas" width="400" height="300"></canvas>
+    </div>
+
+    <div class="panel">
+      <!-- Frame strip -->
+      <h3>Frames (<span id="frameCount">1</span>)</h3>
+      <div class="frame-strip" id="frameStrip"></div>
+
+      <div class="ghost-toggle">
+        <input type="checkbox" id="showGhost" checked onchange="redraw()">
+        <label for="showGhost" style="color:#555;font-size:10px">Ghost prev/next frame</label>
+      </div>
+
+      <!-- Animation -->
+      <h3>Animation</h3>
+      <div class="anim-preview">
+        <canvas id="animCanvas" width="260" height="120"></canvas>
+      </div>
+      <div style="margin-top:6px;display:flex;gap:4px;align-items:center">
+        <button onclick="toggleAnim()" id="animBtn">Play</button>
+        <label style="color:#555;font-size:10px">ms/frame:</label>
+        <input type="range" id="animSpeed" min="50" max="500" value="120" style="width:70px" oninput="document.getElementById('speedLabel').textContent=this.value">
+        <span id="speedLabel" style="color:#555;font-size:10px">120</span>
+      </div>
+
+      <!-- Strokes -->
+      <h3>Strokes (<span id="strokeCount">0</span>)</h3>
+      <div class="stroke-list" id="strokeList"></div>
+
+      <!-- Export -->
+      <h3>Export</h3>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <button onclick="exportTkinter()">Tkinter</button>
+        <button onclick="exportJSON()">JSON</button>
+        <button onclick="copyOutput()">Copy</button>
+      </div>
+      <textarea id="output" readonly placeholder="Click export..."></textarea>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const RED = '#c0392b';
+const GHOST_COLOR = 'rgba(192,57,43,0.12)';
+
+let frames = [[]]; // array of frames, each frame = array of strokes
+let activeIdx = 0;
+let undoStack = [];
+let redoStack = [];
+let currentStroke = null;
+let drawing = false;
+let currentTool = 'stroke';
+let straightStart = null; // for straight line tool
+
+function getFrame() { return frames[activeIdx]; }
+
+// Frame strip UI
+function renderFrameStrip() {
+  const strip = document.getElementById('frameStrip');
+  strip.innerHTML = '';
+  document.getElementById('frameCount').textContent = frames.length;
+
+  frames.forEach((frame, i) => {
+    const div = document.createElement('div');
+    div.className = 'frame-thumb' + (i === activeIdx ? ' active' : '');
+    div.onclick = () => switchFrame(i);
+
+    const cv = document.createElement('canvas');
+    cv.width = 48; cv.height = 36;
+    drawMiniFrame(cv, frame);
+    div.appendChild(cv);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'flabel';
+    lbl.textContent = (i + 1);
+    div.appendChild(lbl);
+
+    // Right-click to delete (if more than 1)
+    div.oncontextmenu = (e) => {
+      e.preventDefault();
+      if (frames.length > 1) deleteFrame(i);
+    };
+
+    strip.appendChild(div);
+  });
+
+  // Add frame button
+  const add = document.createElement('div');
+  add.className = 'frame-add';
+  add.textContent = '+';
+  add.onclick = addFrame;
+  strip.appendChild(add);
+
+  document.getElementById('canvasLabel').textContent = `Frame ${activeIdx + 1}`;
+}
+
+function drawMiniFrame(cv, frame) {
+  const c = cv.getContext('2d');
+  c.fillStyle = '#111';
+  c.fillRect(0, 0, cv.width, cv.height);
+  const sx = cv.width / canvas.width;
+  const sy = cv.height / canvas.height;
+  const sc = Math.min(sx, sy) * 0.9;
+  const ox = (cv.width - canvas.width * sc) / 2;
+  const oy = (cv.height - canvas.height * sc) / 2;
+  c.save();
+  c.translate(ox, oy);
+  c.scale(sc, sc);
+  drawStrokesTo(c, frame, RED, 2);
+  c.restore();
+}
+
+function addFrame() {
+  frames.push([]);
+  switchFrame(frames.length - 1);
+}
+
+function deleteFrame(idx) {
+  frames.splice(idx, 1);
+  if (activeIdx >= frames.length) activeIdx = frames.length - 1;
+  renderFrameStrip();
+  redraw();
+  updateUI();
+}
+
+function switchFrame(idx) {
+  activeIdx = idx;
+  straightStart = null;
+  renderFrameStrip();
+  redraw();
+  updateUI();
+}
+
+function copyFrame() {
+  const copy = JSON.parse(JSON.stringify(frames[activeIdx]));
+  frames.splice(activeIdx + 1, 0, copy);
+  switchFrame(activeIdx + 1);
+}
+
+// Drawing
+canvas.addEventListener('mousedown', e => {
+  if (currentTool === 'eraser') { eraseAt(e); return; }
+  const [x, y] = canvasPos(e);
+
+  if (currentTool === 'straight') {
+    if (!straightStart) {
+      straightStart = [x, y];
+    } else {
+      const s = { mode: 'stroke', points: [straightStart, [x, y]] };
+      pushStroke(s);
+      straightStart = null;
+      redraw();
+      updateUI();
+    }
+    return;
+  }
+
+  drawing = true;
+  currentStroke = [[x, y]];
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!drawing) return;
+  const [x, y] = canvasPos(e);
+  if (currentTool === 'stroke' || currentTool === 'dot') {
+    currentStroke.push([x, y]);
+    redraw();
+  }
+});
+
+canvas.addEventListener('mouseup', finishStroke);
+canvas.addEventListener('mouseleave', () => { if (drawing) finishStroke(); });
+
+function finishStroke() {
+  if (!drawing) return;
+  drawing = false;
+  if (currentStroke && currentStroke.length > 0) {
+    const s = { mode: currentTool, points: simplifyStroke(currentStroke, 2) };
+    pushStroke(s);
+  }
+  currentStroke = null;
+  redraw();
+  updateUI();
+}
+
+function eraseAt(e) {
+  const [x, y] = canvasPos(e);
+  const f = getFrame();
+  for (let i = f.length - 1; i >= 0; i--) {
+    for (const p of f[i].points) {
+      if (Math.hypot(p[0] - x, p[1] - y) < 15) {
+        pushStroke(null, i);
+        redraw();
+        updateUI();
+        return;
+      }
+    }
+  }
+}
+
+function canvasPos(e) {
+  const r = canvas.getBoundingClientRect();
+  let x = e.clientX - r.left;
+  let y = e.clientY - r.top;
+  if (document.getElementById('snapGrid').checked) {
+    x = Math.round(x / 10) * 10;
+    y = Math.round(y / 10) * 10;
+  }
+  return [x, y];
+}
+
+function pushStroke(stroke, deleteIndex) {
+  redoStack = [];
+  if (deleteIndex !== undefined) {
+    undoStack.push({ action: 'delete', frame: activeIdx, index: deleteIndex, stroke: getFrame()[deleteIndex] });
+    getFrame().splice(deleteIndex, 1);
+  } else {
+    undoStack.push({ action: 'add', frame: activeIdx, stroke });
+    getFrame().push(stroke);
+  }
+}
+
+function undoStroke() {
+  if (undoStack.length === 0) return;
+  const op = undoStack.pop();
+  if (op.action === 'add') frames[op.frame].pop();
+  else if (op.action === 'delete') frames[op.frame].splice(op.index, 0, op.stroke);
+  else if (op.action === 'clear') frames[op.frame] = op.strokes;
+  redoStack.push(op);
+  if (op.frame !== activeIdx) switchFrame(op.frame);
+  else { redraw(); updateUI(); renderFrameStrip(); }
+}
+
+function redoStroke() {
+  if (redoStack.length === 0) return;
+  const op = redoStack.pop();
+  if (op.action === 'add') frames[op.frame].push(op.stroke);
+  else if (op.action === 'delete') frames[op.frame].splice(op.index, 1);
+  else if (op.action === 'clear') frames[op.frame] = [];
+  undoStack.push(op);
+  if (op.frame !== activeIdx) switchFrame(op.frame);
+  else { redraw(); updateUI(); renderFrameStrip(); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undoStroke(); }
+  else if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redoStroke(); }
+  else if (e.key === 's' || e.key === 'S') setTool('stroke');
+  else if (e.key === 'l' || e.key === 'L') setTool('straight');
+  else if (e.key === 'd' || e.key === 'D') setTool('dot');
+  else if (e.key === 'e' || e.key === 'E') setTool('eraser');
+});
+
+function setTool(tool) {
+  currentTool = tool;
+  straightStart = null;
+  ['btnStroke','btnStraight','btnDot','btnEraser'].forEach(id => {
+    document.getElementById(id).className = '';
+  });
+  const map = { stroke: 'btnStroke', straight: 'btnStraight', dot: 'btnDot', eraser: 'btnEraser' };
+  document.getElementById(map[tool]).className = 'active';
+  canvas.style.cursor = tool === 'eraser' ? 'not-allowed' : 'crosshair';
+}
+
+function clearFrame() {
+  if (getFrame().length === 0) return;
+  undoStack.push({ action: 'clear', frame: activeIdx, strokes: [...getFrame()] });
+  redoStack = [];
+  frames[activeIdx] = [];
+  redraw();
+  updateUI();
+  renderFrameStrip();
+}
+
+// Rendering
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Grid
+  ctx.strokeStyle = '#1a1012'; ctx.lineWidth = 0.5;
+  for (let x = 0; x <= canvas.width; x += 10) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = 0; y <= canvas.height; y += 10) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+  ctx.strokeStyle = '#1c1415'; ctx.lineWidth = 0.8;
+  for (let x = 0; x <= canvas.width; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = 0; y <= canvas.height; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+  // Ghost
+  if (document.getElementById('showGhost').checked) {
+    if (activeIdx > 0) drawStrokesTo(ctx, frames[activeIdx - 1], GHOST_COLOR, 1);
+    if (activeIdx < frames.length - 1) drawStrokesTo(ctx, frames[activeIdx + 1], 'rgba(192,57,43,0.07)', 1);
+  }
+
+  // Active
+  const size = parseInt(document.getElementById('brushSize').value);
+  drawStrokesTo(ctx, getFrame(), RED, size);
+
+  // Current stroke
+  if (currentStroke && currentStroke.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(currentStroke[0][0], currentStroke[0][1]);
+    for (let i = 1; i < currentStroke.length; i++) ctx.lineTo(currentStroke[i][0], currentStroke[i][1]);
+    ctx.strokeStyle = RED; ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+
+  // Straight line preview
+  if (currentTool === 'straight' && straightStart) {
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(straightStart[0], straightStart[1]);
+    ctx.lineTo(lastMouseX || straightStart[0], lastMouseY || straightStart[1]);
+    ctx.strokeStyle = 'rgba(192,57,43,0.5)'; ctx.lineWidth = size; ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Start dot
+    ctx.beginPath();
+    ctx.arc(straightStart[0], straightStart[1], 4, 0, Math.PI * 2);
+    ctx.fillStyle = RED; ctx.fill();
+  }
+
+  drawAnimation();
+}
+
+let lastMouseX = 0, lastMouseY = 0;
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  lastMouseX = e.clientX - r.left;
+  lastMouseY = e.clientY - r.top;
+  if (currentTool === 'straight' && straightStart) redraw();
+});
+
+function drawStrokesTo(context, strokeArr, color, size) {
+  for (const s of strokeArr) {
+    if (s.mode === 'dot') {
+      for (const p of s.points) {
+        context.beginPath(); context.arc(p[0], p[1], size + 1, 0, Math.PI * 2);
+        context.fillStyle = color; context.fill();
+      }
+    } else if (s.mode === 'straight') {
+      context.beginPath();
+      context.moveTo(s.points[0][0], s.points[0][1]);
+      context.lineTo(s.points[1][0], s.points[1][1]);
+      context.strokeStyle = color; context.lineWidth = size;
+      context.lineCap = 'round'; context.stroke();
+    } else if (s.mode === 'stroke' && s.points.length > 1) {
+      context.beginPath();
+      context.moveTo(s.points[0][0], s.points[0][1]);
+      for (let i = 1; i < s.points.length; i++) context.lineTo(s.points[i][0], s.points[i][1]);
+      context.strokeStyle = color; context.lineWidth = size;
+      context.lineCap = 'round'; context.lineJoin = 'round'; context.stroke();
+    }
+  }
+}
+
+// Animation
+let animTimer = null, animFrame = 0, animPlaying = false;
+
+function toggleAnim() {
+  animPlaying = !animPlaying;
+  document.getElementById('animBtn').textContent = animPlaying ? 'Pause' : 'Play';
+  if (animPlaying) nextAnimFrame();
+  else clearTimeout(animTimer);
+}
+
+function nextAnimFrame() {
+  if (!animPlaying || frames.length === 0) return;
+  animFrame = (animFrame + 1) % frames.length;
+  drawAnimation();
+  animTimer = setTimeout(nextAnimFrame, parseInt(document.getElementById('animSpeed').value));
+}
+
+function drawAnimation() {
+  const c = document.getElementById('animCanvas');
+  const p = c.getContext('2d');
+  p.clearRect(0, 0, c.width, c.height);
+  p.fillStyle = '#111'; p.fillRect(0, 0, c.width, c.height);
+
+  const data = frames[animFrame] || [];
+  const sc = Math.min(c.width / canvas.width, c.height / canvas.height) * 0.85;
+  const ox = (c.width - canvas.width * sc) / 2;
+  const oy = (c.height - canvas.height * sc) / 2;
+  p.save(); p.translate(ox, oy); p.scale(sc, sc);
+  drawStrokesTo(p, data, RED, 2);
+  p.restore();
+
+  // Frame indicator
+  p.fillStyle = '#333'; p.font = '10px Consolas';
+  p.fillText(`${animFrame + 1}/${frames.length}`, 4, c.height - 4);
+  p.fillStyle = animPlaying ? RED : '#333';
+  p.beginPath(); p.arc(c.width - 10, 10, 3, 0, Math.PI * 2); p.fill();
+}
+
+function simplifyStroke(points, tolerance) {
+  if (points.length <= 2) return points;
+  const result = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    if (Math.hypot(points[i][0] - result[result.length-1][0], points[i][1] - result[result.length-1][1]) >= tolerance)
+      result.push(points[i]);
+  }
+  if (result[result.length-1] !== points[points.length-1]) result.push(points[points.length-1]);
+  return result;
+}
+
+// Export
+function exportTkinter() {
+  const s = parseInt(document.getElementById('brushSize').value);
+  let code = '# PANTH3RZ animation frames\n';
+  code += `# ${frames.length} frames, ${canvas.width}x${canvas.height} canvas\n\n`;
+  code += `PANTHER_FRAMES = [\n`;
+  frames.forEach((frame, fi) => {
+    code += `    # Frame ${fi + 1}\n`;
+    code += `    [\n`;
+    for (const stroke of frame) {
+      const pts = simplifyStroke(stroke.points, s);
+      if (stroke.mode === 'dot') {
+        for (const p of pts) code += `        ("dot", ${Math.round(p[0])}, ${Math.round(p[1])}),\n`;
+      } else {
+        const coords = pts.map(p => `(${Math.round(p[0])}, ${Math.round(p[1])})`).join(', ');
+        code += `        ("line", [${coords}]),\n`;
+      }
+    }
+    code += `    ],\n`;
+  });
+  code += `]\n`;
+  document.getElementById('output').value = code;
+}
+
+function exportJSON() {
+  document.getElementById('output').value = JSON.stringify({ frames, size: { w: canvas.width, h: canvas.height } }, null, 2);
+}
+
+function copyOutput() {
+  navigator.clipboard.writeText(document.getElementById('output').value);
+}
+
+function updateUI() {
+  const list = document.getElementById('strokeList');
+  const f = getFrame();
+  document.getElementById('strokeCount').textContent = f.length;
+  list.innerHTML = '';
+  f.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'stroke-item';
+    div.innerHTML = `<span>${i+1}. ${s.mode} — ${s.points.length} pts</span><span class="del" onclick="pushStroke(null,${i});redraw();updateUI();renderFrameStrip()">x</span>`;
+    list.appendChild(div);
+  });
+}
+
+renderFrameStrip();
+redraw();
+updateUI();
+</script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Panther Preview</title>
+<style>
+  body { background: #0d0d0d; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: monospace; color: #e0e0e0; }
+  canvas { border: 1px solid #2a1518; margin: 20px; }
+  .label { color: #666666; font-size: 14px; margin-top: 10px; }
+  .controls { margin-top: 20px; }
+  button { background: #0d0d0d; color: #c0392b; border: 1px solid #2a1518; padding: 8px 20px; font-family: monospace; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1a1012; }
+</style>
+</head>
+<body>
+  <h2 style="color:#c0392b">PANTH3RZ — Animation Preview</h2>
+  <canvas id="c" width="400" height="200"></canvas>
+  <div class="label">frame: <span id="frameLabel">closed</span></div>
+  <div class="controls">
+    <button onclick="toggleAnim()">▶ Play / ⏸ Pause</button>
+    <button onclick="drawFrame(0)">Frame A (closed)</button>
+    <button onclick="drawFrame(1)">Frame B (open)</button>
+  </div>
+<script>
+const ctx = document.getElementById('c').getContext('2d');
+const W = 400, H = 200;
+let animating = false;
+let currentFrame = 0;
+let timer = null;
+
+const RED = '#c0392b';
+const DIM = '#3a1a1c';
+
+// Panther head — side profile facing right
+// Frame A: mouth closed
+const frameA = [
+  // Head top / skull
+  { type: 'stroke', points: [
+    [60, 130], [50, 100], [55, 70], [65, 50], [80, 38],
+    [100, 32], [120, 30], [140, 32], [155, 38], [165, 48]
+  ]},
+  // Ear (left)
+  { type: 'stroke', points: [[80, 38], [75, 18], [90, 30]] },
+  // Ear (right)
+  { type: 'stroke', points: [[110, 30], [120, 12], [130, 32]] },
+  // Back of head down to neck
+  { type: 'stroke', points: [[165, 48], [175, 65], [180, 90], [178, 110]] },
+  // Upper jaw / snout
+  { type: 'stroke', points: [[165, 48], [180, 55], [195, 58], [210, 60], [220, 62]] },
+  // Nose tip
+  { type: 'stroke', points: [[220, 62], [225, 58], [228, 62], [225, 66], [220, 62]] },
+  // Closed mouth line
+  { type: 'stroke', points: [[170, 72], [195, 70], [220, 68]] },
+  // Lower jaw — closed
+  { type: 'stroke', points: [[170, 72], [180, 82], [195, 88], [210, 90], [220, 88]] },
+  // Chin to neck
+  { type: 'stroke', points: [[220, 88], [210, 95], [195, 100], [180, 105], [178, 110]] },
+  // Neck line
+  { type: 'stroke', points: [[178, 110], [175, 130], [170, 145]] },
+  // Eye
+  { type: 'fill', shape: 'circle', cx: 150, cy: 52, r: 4 },
+];
+
+// Frame B: mouth open
+const frameB = [
+  // Head top / skull (same)
+  { type: 'stroke', points: [
+    [60, 130], [50, 100], [55, 70], [65, 50], [80, 38],
+    [100, 32], [120, 30], [140, 32], [155, 38], [165, 48]
+  ]},
+  // Ear (left)
+  { type: 'stroke', points: [[80, 38], [75, 18], [90, 30]] },
+  // Ear (right)
+  { type: 'stroke', points: [[110, 30], [120, 12], [130, 32]] },
+  // Back of head down to neck
+  { type: 'stroke', points: [[165, 48], [175, 65], [180, 90], [178, 110]] },
+  // Upper jaw / snout (same)
+  { type: 'stroke', points: [[165, 48], [180, 55], [195, 58], [210, 60], [220, 62]] },
+  // Nose tip (same)
+  { type: 'stroke', points: [[220, 62], [225, 58], [228, 62], [225, 66], [220, 62]] },
+  // Upper mouth edge
+  { type: 'stroke', points: [[170, 72], [195, 70], [220, 68]] },
+  // Open mouth — gap visible
+  // Lower jaw — dropped open
+  { type: 'stroke', points: [[170, 78], [180, 98], [195, 110], [210, 115], [220, 112]] },
+  // Inner mouth / jaw line back
+  { type: 'stroke', points: [[220, 112], [210, 118], [195, 120], [180, 115], [178, 110]] },
+  // Chin to neck
+  { type: 'stroke', points: [[178, 110], [175, 130], [170, 145]] },
+  // Eye (same, maybe slightly wider)
+  { type: 'fill', shape: 'circle', cx: 150, cy: 50, r: 4.5 },
+];
+
+function drawFrame(idx) {
+  currentFrame = idx;
+  document.getElementById('frameLabel').textContent = idx === 0 ? 'closed' : 'open';
+  const data = idx === 0 ? frameA : frameB;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Offset panther to center
+  ctx.save();
+  ctx.translate(60, 15);
+
+  for (const part of data) {
+    if (part.type === 'stroke') {
+      ctx.beginPath();
+      ctx.moveTo(part.points[0][0], part.points[0][1]);
+      for (let i = 1; i < part.points.length; i++) {
+        ctx.lineTo(part.points[i][0], part.points[i][1]);
+      }
+      ctx.strokeStyle = RED;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    } else if (part.type === 'fill') {
+      ctx.beginPath();
+      ctx.arc(part.cx, part.cy, part.r, 0, Math.PI * 2);
+      ctx.fillStyle = RED;
+      ctx.fill();
+    }
+  }
+
+  // Glow effect
+  ctx.shadowColor = RED;
+  ctx.shadowBlur = 8;
+  ctx.strokeStyle = RED;
+  ctx.lineWidth = 0.5;
+  ctx.globalAlpha = 0.3;
+  for (const part of data) {
+    if (part.type === 'stroke') {
+      ctx.beginPath();
+      ctx.moveTo(part.points[0][0], part.points[0][1]);
+      for (let i = 1; i < part.points.length; i++) {
+        ctx.lineTo(part.points[i][0], part.points[i][1]);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+function toggleAnim() {
+  animating = !animating;
+  if (animating) {
+    nextFrame();
+  } else {
+    clearTimeout(timer);
+    drawFrame(0);
+  }
+}
+
+function nextFrame() {
+  if (!animating) return;
+  drawFrame(currentFrame === 0 ? 1 : 0);
+  timer = setTimeout(nextFrame, 200);
+}
+
+// Initial draw
+drawFrame(0);
+</script>
+</body>
+</html>
